@@ -3,9 +3,9 @@ package db
 import (
 	"context"
 	"database/sql"
-	"math/rand"
 	"testing"
 
+	"github.com/jenkka/basic-bank-app/util"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
@@ -13,7 +13,7 @@ import (
 func randomEntryParams(accountID int64) CreateEntryParams {
 	return CreateEntryParams{
 		AccountID: accountID,
-		Amount:    decimal.NewFromInt(int64(rand.Intn(1000))),
+		Amount:    decimal.NewFromInt(util.RandomMoney()),
 	}
 }
 

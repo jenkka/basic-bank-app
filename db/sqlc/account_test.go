@@ -3,19 +3,18 @@ package db
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"math/rand"
 	"testing"
 
+	"github.com/jenkka/basic-bank-app/util"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
 
 func randomAccountParams() CreateAccountParams {
 	return CreateAccountParams{
-		Owner:    fmt.Sprintf("user_%d", rand.Int()),
-		Balance:  decimal.NewFromInt(int64(rand.Intn(1000))),
-		Currency: "MXN",
+		Owner:    util.RandomOwner(),
+		Balance:  decimal.NewFromInt(util.RandomMoney()),
+		Currency: util.RandomCurrency(),
 	}
 }
 

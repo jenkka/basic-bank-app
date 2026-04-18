@@ -3,9 +3,9 @@ package db
 import (
 	"context"
 	"database/sql"
-	"math/rand"
 	"testing"
 
+	"github.com/jenkka/basic-bank-app/util"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
@@ -14,7 +14,7 @@ func randomTransferParams(fromAccountID, toAccountID int64) CreateTransferParams
 	return CreateTransferParams{
 		FromAccountID: fromAccountID,
 		ToAccountID:   toAccountID,
-		Amount:        decimal.NewFromInt(int64(rand.Intn(1000))),
+		Amount:        decimal.NewFromInt(util.RandomMoney()),
 	}
 }
 

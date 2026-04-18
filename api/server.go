@@ -1,7 +1,11 @@
 package api
 
 import (
+	"fmt"
+
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
+	"github.com/go-playground/validator/v10"
 	db "github.com/jenkka/basic-bank-app/db/sqlc"
 )
 
@@ -10,9 +14,15 @@ type Server struct {
 	router *gin.Engine
 }
 
-func NewServer(store db.Store) *Server {
+func NewServer(store db.Store) (*Server, error) {
 	server := &Server{store: store}
 	router := gin.Default()
+
+	v, ok := binding.Validator.Engine().(*validator.Validate)
+	if !ok {
+		return nil, fmt.Errorf("failed to get gin validator engine")
+	}
+	v.RegisterValidation("validcurrency", validCurrency)
 
 	router.POST("/accounts", server.createAccount)
 	router.GET("/accounts/:id", server.getAccount)
@@ -21,7 +31,7 @@ func NewServer(store db.Store) *Server {
 	router.POST("/transfers", server.createTransfer)
 
 	server.router = router
-	return server
+	return server, nil
 }
 
 func errorResponse(err error) gin.H {

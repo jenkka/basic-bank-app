@@ -13,6 +13,7 @@ import (
 
 	mockdb "github.com/jenkka/basic-bank-app/db/mock"
 	db "github.com/jenkka/basic-bank-app/db/sqlc"
+	"github.com/jenkka/basic-bank-app/util"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -20,10 +21,10 @@ import (
 
 func randomAccount() db.Account {
 	return db.Account{
-		ID:        1,
-		Owner:     "testowner",
-		Balance:   decimal.NewFromFloat(100.0),
-		Currency:  "USD",
+		ID:        util.RandomInt(1, 1000),
+		Owner:     util.RandomOwner(),
+		Balance:   decimal.NewFromInt(util.RandomMoney()),
+		Currency:  util.RandomCurrency(),
 		CreatedAt: time.Now(),
 	}
 }
@@ -115,7 +116,8 @@ func TestGetAccountAPI(t *testing.T) {
 			store := mockdb.NewMockStore(ctrl)
 			tc.buildStubs(store)
 
-			server := NewServer(store)
+			server, err := NewServer(store)
+			require.NoError(t, err)
 			recorder := httptest.NewRecorder()
 
 			url := fmt.Sprintf("/accounts/%d", tc.accountID)
@@ -215,7 +217,8 @@ func TestCreateAccountAPI(t *testing.T) {
 			store := mockdb.NewMockStore(ctrl)
 			tc.buildStubs(store)
 
-			server := NewServer(store)
+			server, err := NewServer(store)
+			require.NoError(t, err)
 			recorder := httptest.NewRecorder()
 
 			body, err := json.Marshal(tc.body)
@@ -324,7 +327,8 @@ func TestListAccountsAPI(t *testing.T) {
 			store := mockdb.NewMockStore(ctrl)
 			tc.buildStubs(store)
 
-			server := NewServer(store)
+			server, err := NewServer(store)
+			require.NoError(t, err)
 			recorder := httptest.NewRecorder()
 
 			url := fmt.Sprintf("/accounts?page_id=%d&page_size=%d", tc.pageID, tc.pageSize)
