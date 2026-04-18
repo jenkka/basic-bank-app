@@ -30,6 +30,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatal("Failed to connect to the database:", err)
 	}
+	defer testDB.Close()
 
 	testQueries = New(testDB)
 
