@@ -34,3 +34,12 @@ type Transfer struct {
 	Amount    decimal.Decimal `json:"amount"`
 	CreatedAt time.Time       `json:"created_at"`
 }
+
+type User struct {
+	Username     string    `json:"username"`
+	HashedPwd    string    `json:"hashed_pwd"`
+	Email        string    `json:"email"`
+	FullName     string    `json:"full_name"`
+	CreatedAt    time.Time `json:"created_at"`
+	PwdUpdatedAt time.Time `json:"pwd_updated_at"`
+}

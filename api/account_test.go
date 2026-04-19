@@ -14,6 +14,7 @@ import (
 	mockdb "github.com/jenkka/basic-bank-app/db/mock"
 	db "github.com/jenkka/basic-bank-app/db/sqlc"
 	"github.com/jenkka/basic-bank-app/util"
+	"github.com/lib/pq"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -22,7 +23,7 @@ import (
 func randomAccount() db.Account {
 	return db.Account{
 		ID:        util.RandomInt(1, 1000),
-		Owner:     util.RandomOwner(),
+		Owner:     util.RandomUsername(),
 		Balance:   decimal.NewFromInt(util.RandomMoney()),
 		Currency:  util.RandomCurrency(),
 		CreatedAt: time.Now(),
@@ -175,6 +176,38 @@ func TestCreateAccountAPI(t *testing.T) {
 			},
 			checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
 				require.Equal(t, http.StatusInternalServerError, recorder.Code)
+			},
+		},
+		{
+			name: "ForeignKeyViolation",
+			body: map[string]any{
+				"owner":    account.Owner,
+				"currency": account.Currency,
+			},
+			buildStubs: func(store *mockdb.MockStore) {
+				store.EXPECT().
+					CreateAccount(gomock.Any(), gomock.Any()).
+					Times(1).
+					Return(db.Account{}, &pq.Error{Code: "23503"})
+			},
+			checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusUnprocessableEntity, recorder.Code)
+			},
+		},
+		{
+			name: "UniqueViolation",
+			body: map[string]any{
+				"owner":    account.Owner,
+				"currency": account.Currency,
+			},
+			buildStubs: func(store *mockdb.MockStore) {
+				store.EXPECT().
+					CreateAccount(gomock.Any(), gomock.Any()).
+					Times(1).
+					Return(db.Account{}, &pq.Error{Code: "23505"})
+			},
+			checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusConflict, recorder.Code)
 			},
 		},
 		{

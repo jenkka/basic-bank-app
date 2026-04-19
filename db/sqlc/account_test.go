@@ -4,22 +4,24 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/jenkka/basic-bank-app/util"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
 
-func randomAccountParams() CreateAccountParams {
+func randomAccountParams(username string) CreateAccountParams {
 	return CreateAccountParams{
-		Owner:    util.RandomOwner(),
+		Owner:    username,
 		Balance:  decimal.NewFromInt(util.RandomMoney()),
 		Currency: util.RandomCurrency(),
 	}
 }
 
 func createRandomAccount(t *testing.T) Account {
-	accParams := randomAccountParams()
+	user := createRandomUser(t)
+	accParams := randomAccountParams(user.Username)
 	account, err := testQueries.CreateAccount(context.Background(), accParams)
 	require.NoError(t, err)
 	require.NotEmpty(t, account)
@@ -28,7 +30,8 @@ func createRandomAccount(t *testing.T) Account {
 }
 
 func TestCreateAccount(t *testing.T) {
-	accParams := randomAccountParams()
+	user := createRandomUser(t)
+	accParams := randomAccountParams(user.Username)
 	account, err := testQueries.CreateAccount(context.Background(), accParams)
 
 	require.NoError(t, err)
@@ -41,32 +44,26 @@ func TestCreateAccount(t *testing.T) {
 }
 
 func TestGetAccount(t *testing.T) {
-	accParams := randomAccountParams()
-	createdAccount, err := testQueries.CreateAccount(context.Background(), accParams)
-	require.NoError(t, err)
-	require.NotEmpty(t, createdAccount)
+	createdAccount := createRandomAccount(t)
 
-	account, err := testQueries.GetAccount(context.Background(), createdAccount.ID)
+	getAccount, err := testQueries.GetAccount(context.Background(), createdAccount.ID)
 	require.NoError(t, err)
-	require.NotEmpty(t, account)
-	require.NotZero(t, account.ID)
-	require.NotZero(t, account.CreatedAt)
-	require.Equal(t, accParams.Owner, account.Owner)
-	requireDecimalEqual(t, accParams.Balance, account.Balance)
-	require.Equal(t, accParams.Currency, account.Currency)
+	require.NotEmpty(t, getAccount)
+	require.NotZero(t, getAccount.ID)
+	require.Equal(t, createdAccount.Owner, getAccount.Owner)
+	requireDecimalEqual(t, createdAccount.Balance, getAccount.Balance)
+	require.Equal(t, createdAccount.Currency, getAccount.Currency)
+	require.WithinDuration(t, createdAccount.CreatedAt, getAccount.CreatedAt, time.Second)
 }
 
 func TestUpdateAccount(t *testing.T) {
-	accParams := randomAccountParams()
-	createdAccount, err := testQueries.CreateAccount(context.Background(), accParams)
-	require.NoError(t, err)
-	require.NotEmpty(t, createdAccount)
+	createdAccount := createRandomAccount(t)
 
 	updateAccParams := UpdateAccountParams{
 		ID:      createdAccount.ID,
 		Balance: decimal.NewFromFloat(15.11),
 	}
-	_, err = testQueries.UpdateAccount(context.Background(), updateAccParams)
+	_, err := testQueries.UpdateAccount(context.Background(), updateAccParams)
 	require.NoError(t, err)
 
 	updatedAccount, err := testQueries.GetAccount(context.Background(), createdAccount.ID)
@@ -76,13 +73,9 @@ func TestUpdateAccount(t *testing.T) {
 }
 
 func TestDeleteAccount(t *testing.T) {
-	accParams := randomAccountParams()
+	createdAccount := createRandomAccount(t)
 
-	createdAccount, err := testQueries.CreateAccount(context.Background(), accParams)
-	require.NoError(t, err)
-	require.NotEmpty(t, createdAccount)
-
-	_, err = testQueries.DeleteAccount(context.Background(), createdAccount.ID)
+	_, err := testQueries.DeleteAccount(context.Background(), createdAccount.ID)
 	require.NoError(t, err)
 
 	_, err = testQueries.GetAccount(context.Background(), createdAccount.ID)
@@ -91,9 +84,7 @@ func TestDeleteAccount(t *testing.T) {
 
 func TestListAccounts(t *testing.T) {
 	for i := 0; i < 10; i++ {
-		createdAccount, err := testQueries.CreateAccount(context.Background(), randomAccountParams())
-		require.NoError(t, err)
-		require.NotEmpty(t, createdAccount)
+		createRandomAccount(t)
 	}
 
 	params := ListAccountsParams{

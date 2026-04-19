@@ -21,14 +21,14 @@ func TestCreateTransferAPI(t *testing.T) {
 	currency := util.RandomCurrency()
 	fromAccount := db.Account{
 		ID:        util.RandomInt(1, 1000),
-		Owner:     util.RandomOwner(),
+		Owner:     util.RandomUsername(),
 		Balance:   decimal.NewFromInt(util.RandomMoney()),
 		Currency:  currency,
 		CreatedAt: time.Now(),
 	}
 	toAccount := db.Account{
 		ID:        util.RandomInt(1001, 2000),
-		Owner:     util.RandomOwner(),
+		Owner:     util.RandomUsername(),
 		Balance:   decimal.NewFromInt(util.RandomMoney()),
 		Currency:  currency,
 		CreatedAt: time.Now(),

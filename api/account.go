@@ -3,10 +3,12 @@ package api
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	db "github.com/jenkka/basic-bank-app/db/sqlc"
+	"github.com/lib/pq"
 	"github.com/shopspring/decimal"
 )
 
@@ -31,6 +33,19 @@ func (server *Server) createAccount(ctx *gin.Context) {
 
 	account, err := server.store.CreateAccount(ctx, accountParams)
 	if err != nil {
+		if pqError, ok := err.(*pq.Error); ok {
+			switch pqError.Code.Name() {
+			case fkViolation:
+				errMsg := fmt.Sprintf("the specified owner %s is not an existing user.", accountParams.Owner)
+				ctx.JSON(http.StatusUnprocessableEntity, errorResponse(errors.New(errMsg)))
+				return
+			case uniqueViolation:
+				errMsg := fmt.Sprintf("an account with the currency %s already exists for the owner %s", accountParams.Currency, accountParams.Owner)
+				ctx.JSON(http.StatusConflict, errorResponse(errors.New(errMsg)))
+				return
+			}
+		}
+
 		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
@@ -53,7 +68,7 @@ func (server *Server) getAccount(ctx *gin.Context) {
 	if err != nil {
 		switch err {
 		case sql.ErrNoRows:
-			errMsg := "Could not find an account with the provided ID."
+			errMsg := "could not find an account with the provided ID."
 			ctx.JSON(http.StatusNotFound, errorResponse(errors.New(errMsg)))
 		default:
 			ctx.JSON(http.StatusInternalServerError, errorResponse(err))
