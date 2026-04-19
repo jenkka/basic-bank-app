@@ -16,11 +16,17 @@ create-db:
 drop-db:
 	docker exec -it my-postgres dropdb basic_bank_app
 
-migrate-db-up:
+migrateup:
 	migrate -path db/migration/ -database "postgresql://root:secret@localhost:5432/basic_bank_app?sslmode=disable" -verbose up
 
-migrate-db-down:
+migrateup1:
+	migrate -path db/migration/ -database "postgresql://root:secret@localhost:5432/basic_bank_app?sslmode=disable" -verbose up 1
+
+migratedown:
 	migrate -path db/migration/ -database "postgresql://root:secret@localhost:5432/basic_bank_app?sslmode=disable" -verbose down
+
+migratedown1:
+	migrate -path db/migration/ -database "postgresql://root:secret@localhost:5432/basic_bank_app?sslmode=disable" -verbose down 1
 
 sqlc:
 	sqlc generate
