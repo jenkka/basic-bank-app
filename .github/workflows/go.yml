@@ -50,7 +50,7 @@ jobs:
         run: go build -v ./...
 
       - name: Setup database
-        run: make migrate-db-up
+        run: make migrateup
 
       - name: Test
         run: make test
