@@ -34,14 +34,13 @@ func (server *Server) createAccount(ctx *gin.Context) {
 	account, err := server.store.CreateAccount(ctx, accountParams)
 	if err != nil {
 		if pqError, ok := err.(*pq.Error); ok {
-			switch pqError.Code.Name() {
-			case fkViolation:
-				errMsg := fmt.Sprintf("the specified owner %s is not an existing user.", accountParams.Owner)
-				ctx.JSON(http.StatusUnprocessableEntity, errorResponse(errors.New(errMsg)))
+			if pqError.Code.Name() == fkViolation {
+				err = fmt.Errorf("the specified owner %s is not an existing user.", accountParams.Owner)
+				ctx.JSON(http.StatusUnprocessableEntity, errorResponse(err))
 				return
-			case uniqueViolation:
-				errMsg := fmt.Sprintf("an account with the currency %s already exists for the owner %s", accountParams.Currency, accountParams.Owner)
-				ctx.JSON(http.StatusConflict, errorResponse(errors.New(errMsg)))
+			} else if pqError.Code.Name() == uniqueViolation {
+				err = fmt.Errorf("an account with the currency %s already exists for the owner %s", accountParams.Currency, accountParams.Owner)
+				ctx.JSON(http.StatusConflict, errorResponse(err))
 				return
 			}
 		}
@@ -50,7 +49,7 @@ func (server *Server) createAccount(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, account)
+	ctx.JSON(http.StatusCreated, account)
 }
 
 type getAccountRequest struct {

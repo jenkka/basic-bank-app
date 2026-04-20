@@ -55,7 +55,7 @@ func (server *Server) createTransfer(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, transfer)
+	ctx.JSON(http.StatusCreated, transfer)
 }
 
 func (server *Server) validAccountCurrency(ctx *gin.Context, accountId int64, currency string) bool {

@@ -9,17 +9,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func randomUserParams() CreateUserParams {
+func randomUserParams(t *testing.T) CreateUserParams {
+	hashedPassword, err := util.HashPassword(util.RandomString(8))
+	require.NoError(t, err)
+	require.NotEmpty(t, hashedPassword)
+
 	return CreateUserParams{
 		Username:  util.RandomUsername(),
-		HashedPwd: "secret",
+		HashedPwd: hashedPassword,
 		Email:     util.RandomEmail(),
 		FullName:  util.RandomFullName(),
 	}
 }
 
 func createRandomUser(t *testing.T) User {
-	userParams := randomUserParams()
+	userParams := randomUserParams(t)
 	user, err := testQueries.CreateUser(context.Background(), userParams)
 	require.NoError(t, err)
 	require.NotEmpty(t, user)
@@ -28,7 +32,7 @@ func createRandomUser(t *testing.T) User {
 }
 
 func TestCreateUser(t *testing.T) {
-	userParams := randomUserParams()
+	userParams := randomUserParams(t)
 	user, err := testQueries.CreateUser(context.Background(), userParams)
 
 	require.NoError(t, err)

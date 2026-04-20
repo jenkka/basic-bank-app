@@ -76,7 +76,7 @@ func TestCreateTransferAPI(t *testing.T) {
 					}, nil)
 			},
 			checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
-				require.Equal(t, http.StatusOK, recorder.Code)
+				require.Equal(t, http.StatusCreated, recorder.Code)
 			},
 		},
 		{
@@ -227,6 +227,25 @@ func TestCreateTransferAPI(t *testing.T) {
 			},
 			checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
 				require.Equal(t, http.StatusBadRequest, recorder.Code)
+			},
+		},
+		{
+			name: "GetAccountInternalError",
+			body: map[string]any{
+				"from_account_id": fromAccount.ID,
+				"to_account_id":   toAccount.ID,
+				"amount":          "50",
+				"currency":        currency,
+			},
+			buildStubs: func(store *mockdb.MockStore) {
+				store.EXPECT().
+					GetAccount(gomock.Any(), gomock.Eq(fromAccount.ID)).
+					Times(1).
+					Return(db.Account{}, sql.ErrConnDone)
+				store.EXPECT().TransferTxn(gomock.Any(), gomock.Any()).Times(0)
+			},
+			checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusInternalServerError, recorder.Code)
 			},
 		},
 		{
