@@ -7,22 +7,42 @@ import (
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
 	db "github.com/jenkka/basic-bank-app/db/sqlc"
+	"github.com/jenkka/basic-bank-app/token"
+	"github.com/jenkka/basic-bank-app/util"
 )
 
 type Server struct {
-	store  db.Store
-	router *gin.Engine
+	store      db.Store
+	router     *gin.Engine
+	tokenMaker token.Maker
+	config     util.Config
 }
 
-func NewServer(store db.Store) (*Server, error) {
-	server := &Server{store: store}
-	router := gin.Default()
+func NewServer(store db.Store, config util.Config) (*Server, error) {
+	tokenMaker, err := token.NewJWTMaker(config.TokenSymmetricKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create token maker: %w", err)
+	}
+
+	server := &Server{
+		store:      store,
+		tokenMaker: tokenMaker,
+		config:     config,
+	}
 
 	v, ok := binding.Validator.Engine().(*validator.Validate)
 	if !ok {
 		return nil, fmt.Errorf("failed to get gin validator engine")
 	}
 	v.RegisterValidation("validcurrency", validCurrency)
+
+	server.setupRouter()
+
+	return server, nil
+}
+
+func (server *Server) setupRouter() {
+	router := gin.Default()
 
 	router.POST("/accounts", server.createAccount)
 	router.GET("/accounts/:id", server.getAccount)
@@ -31,9 +51,9 @@ func NewServer(store db.Store) (*Server, error) {
 	router.POST("/transfers", server.createTransfer)
 
 	router.POST("/users", server.createUser)
+	router.POST("/users/login", server.loginUser)
 
 	server.router = router
-	return server, nil
 }
 
 func errorResponse(err error) gin.H {

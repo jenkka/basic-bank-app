@@ -23,7 +23,7 @@ func main() {
 	defer conn.Close()
 
 	store := db.NewStore(conn)
-	server, err := api.NewServer(store)
+	server, err := api.NewServer(store, config)
 	if err != nil {
 		log.Fatal("Failed to create server:", err)
 	}
