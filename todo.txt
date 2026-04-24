@@ -1,314 +1,144 @@
-================================================================
-  JWT AUTH — IMPLEMENTATION GUIDE
-================================================================
+# Guide: Adding Authentication Middleware to Your APIs
 
-Goal: build a small `token` package that can mint and verify JWT
-access tokens. We won't wire it into the API yet — that's a
-separate commit. Focus here is just the library/functionality.
+You have the login endpoint that *issues* tokens. Now you need middleware
+that *verifies* those tokens on every protected route, and then use the
+authenticated identity to enforce authorization rules inside your handlers.
 
-----------------------------------------------------------------
-  PART 1 — CONCEPTS (read before you start)
-----------------------------------------------------------------
 
-A JWT is a compact string shaped like:   xxx.yyy.zzz
+## 1. Understand the two concepts
 
-Three base64url-encoded parts joined by dots:
+- Authentication — "who is this request from?" The middleware answers
+  this by verifying the JWT in the `Authorization` header.
+- Authorization — "is this user allowed to do this?" This lives in each
+  handler (e.g. a user should only see *their own* accounts).
 
-  1. HEADER     — which signing algorithm was used (e.g. HS256).
-  2. PAYLOAD    — the claims: username, expiration, issued-at,
-                  a unique token ID, whatever you want.
-                  IMPORTANT: this is NOT encrypted. Anyone who
-                  gets the token can base64-decode and read it.
-                  Never put passwords or secrets inside.
-  3. SIGNATURE  — HMAC-SHA256(header.payload, secretKey).
+Middleware only does the first. Handlers do the second using what the
+middleware provides.
 
-The server holds the secret key. If a client flips even one bit
-in the payload, the signature no longer matches and the server
-rejects the token. That's the whole trick.
 
-Because the signature alone is enough to prove authenticity, the
-server doesn't need to remember issued tokens (no session table).
-This is called STATELESS auth. The tradeoff: you can't easily
-revoke a single token before it expires — so keep the expiration
-short.
+## 2. Anatomy of the middleware you'll build
 
-We use HS256 (symmetric: one secret key signs AND verifies).
-The alternative is RS256 (private signs, public verifies) — use
-that only when a separate service must verify tokens it didn't
-issue. For this single-service app, HS256 is simpler and fine.
-
-----------------------------------------------------------------
-  PART 2 — DESIGN
-----------------------------------------------------------------
-
-New package `token/` with four files:
-
-  token/
-  ├── maker.go            <- Maker interface (the contract)
-  ├── payload.go          <- Payload struct + sentinel errors
-  ├── jwt_maker.go        <- JWTMaker: the HS256 implementation
-  └── jwt_maker_test.go   <- unit tests
-
-Why an interface? JWT isn't the only option — PASETO is a
-modern alternative. By coding against `Maker`, the API layer
-won't care which implementation it got.
-
-----------------------------------------------------------------
-  STEP 0 — DEPENDENCIES (already done)
-----------------------------------------------------------------
-
-I already ran:
-
-    go get github.com/golang-jwt/jwt/v5
-    go get github.com/google/uuid
-
-So `go.mod` now has both. NOTE v5 is important — tutorials
-online often use v4 and the API differs slightly (v5's Claims
-interface is richer; v5 auto-validates `exp`/`nbf` for you).
-
-----------------------------------------------------------------
-  STEP 1 — token/maker.go
-----------------------------------------------------------------
-
-Create the package and define ONE interface with TWO methods:
-
-  package token
-
-  type Maker interface {
-      CreateToken(
-          username string,
-          duration time.Duration,
-      ) (string, error)
-
-      VerifyToken(token string) (*Payload, error)
-  }
-
-That's the whole file. Only import you need is "time".
-
-What each method will do (you'll implement them later):
-  - CreateToken: build a Payload for `username`, set expiration
-    to now+duration, sign it, return the encoded string.
-  - VerifyToken: decode the string, check signature and
-    expiration, return the Payload inside, or an error.
-
-----------------------------------------------------------------
-  STEP 2 — token/payload.go
-----------------------------------------------------------------
-
-This file has three things:
-
-  A) Two sentinel errors that VerifyToken will return, so
-     callers can tell the two failure modes apart:
-
-         ErrInvalidToken   (tampered, wrong key, bad format)
-         ErrExpiredToken   (signature ok, but past exp time)
-
-     Declare them with `errors.New(...)` at package level.
-
-  B) A `Payload` struct. It needs to:
-       - carry your own data: a token ID (uuid.UUID) and a
-         Username (string)
-       - satisfy jwt/v5's `Claims` interface so the library
-         can validate/serialize it
-
-     Easiest way to satisfy Claims is to EMBED
-     `jwt.RegisteredClaims` — that's a struct the library
-     provides with standard JWT fields (`ExpiresAt`, `IssuedAt`,
-     `NotBefore`, `Issuer`, `Subject`, `Audience`, `ID`) and
-     the methods needed for the Claims interface already
-     implemented. So you get expiration handling for free.
-
-     Shape:
-
-         type Payload struct {
-             ID       uuid.UUID `json:"id"`
-             Username string    `json:"username"`
-             jwt.RegisteredClaims
-         }
-
-     Field tags are for JSON serialization — the library
-     marshals this struct into the token's payload part.
-
-  C) A constructor `NewPayload(username, duration)`:
-       - generate a uuid with `uuid.NewRandom()` (returns
-         uuid.UUID, error — handle the error)
-       - grab `time.Now()` once and reuse it so IssuedAt and
-         ExpiresAt are based on the same moment
-       - build and return a `*Payload` with RegisteredClaims
-         populated:
-             IssuedAt:  jwt.NewNumericDate(now)
-             ExpiresAt: jwt.NewNumericDate(now.Add(duration))
-         (`jwt.NewNumericDate` wraps a time.Time in the
-         format JWT uses on the wire — seconds since epoch.)
-
-----------------------------------------------------------------
-  STEP 3 — token/jwt_maker.go
-----------------------------------------------------------------
-
-This is the meat. Do it in four pieces:
-
-  A) A `minSecretKeySize` constant — set to 32.
-     HS256 uses a 256-bit key; any shorter and the security
-     argument falls apart. The library won't enforce this for
-     you, so we do.
-
-  B) A `JWTMaker` struct holding just one field:
-         secretKey string
-
-  C) `NewJWTMaker(secretKey string) (*JWTMaker, error)`:
-       - reject keys shorter than minSecretKeySize with a
-         descriptive `fmt.Errorf`
-       - otherwise return &JWTMaker{secretKey}.
-
-  D) The two methods from the interface:
-
-     -- CreateToken(username, duration) (string, error) --
-       1. Call NewPayload(username, duration). Propagate error.
-       2. Build an unsigned token:
-              jwt.NewWithClaims(jwt.SigningMethodHS256, payload)
-          This chooses HS256 and attaches your claims.
-       3. Sign it:
-              token.SignedString([]byte(m.secretKey))
-          SignedString wants []byte even for HMAC — that's just
-          the API.
-       4. Return the resulting string.
-
-     -- VerifyToken(tokenStr) (*Payload, error) --
-       This is more subtle. You need a "key function" callback
-       that the library calls while parsing. The callback's job
-       is to hand back the key to verify the signature with —
-       BUT FIRST it must check that the token's declared
-       algorithm matches what you expect.
-
-       Why that check matters — the "alg=none" / algorithm-
-       confusion attack:
-         Old JWT libraries would honor whatever `alg` was in
-         the token's header. An attacker could craft a token
-         with `alg: "none"` (no signature at all) or with a
-         DIFFERENT algorithm than the server uses, and slip it
-         past verification. The fix: in the key function,
-         assert the method is HMAC before returning the key.
-
-       So the keyFunc looks like:
-
-           keyFunc := func(token *jwt.Token) (any, error) {
-               _, ok := token.Method.(*jwt.SigningMethodHMAC)
-               if !ok {
-                   return nil, ErrInvalidToken
-               }
-               return []byte(m.secretKey), nil
-           }
-
-       Then:
-           parsed, err := jwt.ParseWithClaims(
-               tokenStr, &Payload{}, keyFunc,
-           )
-
-       The second arg is an EMPTY Payload the library fills in
-       from the decoded JSON. Pass a pointer.
-
-       Error classification:
-         jwt/v5 returns wrapped errors. Use `errors.Is` to see
-         if the token was specifically expired:
-
-             if errors.Is(err, jwt.ErrTokenExpired) {
-                 return nil, ErrExpiredToken
-             }
-             return nil, ErrInvalidToken
-
-       If err was nil, pull the payload out with a type
-       assertion:
-
-           payload, ok := parsed.Claims.(*Payload)
-           if !ok {
-               return nil, ErrInvalidToken
-           }
-           return payload, nil
-
-----------------------------------------------------------------
-  STEP 4 — token/jwt_maker_test.go
-----------------------------------------------------------------
-
-Three cases at minimum:
-
-  1. TestJWTMaker (happy path)
-     - build a JWTMaker with util.RandomString(32)
-     - pick a random username and duration = time.Minute
-     - capture issuedAt := time.Now() and
-       expiredAt := issuedAt.Add(duration) BEFORE calling
-       CreateToken, so your assertions aren't racing the clock
-     - CreateToken — expect non-empty string, no error
-     - VerifyToken — expect non-nil payload, no error
-     - assert payload.ID is non-zero, Username matches, and
-       IssuedAt/ExpiresAt are within time.Second of the
-       captured values (use require.WithinDuration; note that
-       payload.IssuedAt is a *jwt.NumericDate, so read its
-       `.Time` field)
-
-  2. TestExpiredJWTToken
-     - CreateToken with a NEGATIVE duration (e.g. -time.Minute)
-       — the library will set ExpiresAt in the past
-     - VerifyToken must return an error that `errors.Is`
-       matches ErrExpiredToken, and payload must be nil
-     - use require.ErrorIs
-
-  3. TestInvalidJWTTokenAlgNone
-     - build a Payload with NewPayload directly
-     - hand-craft a token using `jwt.SigningMethodNone`:
-           jwtToken := jwt.NewWithClaims(
-               jwt.SigningMethodNone, payload,
-           )
-           token, _ := jwtToken.SignedString(
-               jwt.UnsafeAllowNoneSignatureType,
-           )
-       The `UnsafeAllowNoneSignatureType` sentinel is the
-       library's deliberately-awkward way of letting you sign
-       with "none" in tests only.
-     - call VerifyToken on it
-     - expect errors.Is(err, ErrInvalidToken); payload nil
-     This proves your keyFunc rejects the alg-confusion attack.
-
-Optional 4th case: TestInvalidJWTTokenBadSignature
-     - create a token with maker A, verify with maker B
-       (different secret key). Must return ErrInvalidToken.
-
-----------------------------------------------------------------
-  STEP 5 — VERIFY EVERYTHING COMPILES & PASSES
-----------------------------------------------------------------
-
-    go mod tidy
-    go build ./...
-    go test ./token/...
-
-If all green, you're done with this commit's scope.
-
-----------------------------------------------------------------
-  WHAT COMES NEXT (separate commit)
-----------------------------------------------------------------
-
-When you're ready to wire this into the API:
-
-  - Add two entries to app.env and util/config.go:
-        TOKEN_SYMMETRIC_KEY      (string, >=32 chars)
-        ACCESS_TOKEN_DURATION    (time.Duration, e.g. 15m)
-  - Add a login endpoint in the API that:
-        - fetches the user, checks password with
-          util.CheckPassword
-        - calls Maker.CreateToken(user.Username, duration)
-        - returns the token in the response
-  - Add Gin middleware that:
-        - reads the "Authorization: Bearer <token>" header
-        - calls Maker.VerifyToken on the token
-        - stashes the payload on the context for handlers
-        - returns 401 on any error
-  - Wire Maker into api.Server (store + tokenMaker fields) and
-    protect the account/transfer routes with the middleware.
-
-----------------------------------------------------------------
-  USEFUL REFERENCES
-----------------------------------------------------------------
-
-  golang-jwt/jwt v5 docs:
-      https://pkg.go.dev/github.com/golang-jwt/jwt/v5
-  JWT in general:
-      https://jwt.io/introduction
+It's a function that returns a `gin.HandlerFunc`. For each request, it
+needs to:
+
+1. Read the `Authorization` header from `ctx.GetHeader(...)`.
+2. Check it's non-empty — otherwise abort with 401.
+3. Split it into two parts by space. A valid header looks like
+   `Bearer <token>`.
+4. Check the scheme (`Bearer`) is supported. Compare lower-cased — be
+   lenient.
+5. Call `server.tokenMaker.VerifyToken(tokenString)`. If it errors
+   (invalid or expired), abort with 401.
+6. On success, stash the returned `*token.Payload` into the request
+   context with `ctx.Set(authorizationPayloadKey, payload)`.
+7. Call `ctx.Next()` to pass control to the handler.
+
+To abort properly, use:
+  `ctx.AbortWithStatusJSON(http.StatusUnauthorized, errorResponse(err))`
+
+Plain `ctx.JSON` + `return` is a common bug — it writes the response
+but still runs the handler. `AbortWithStatusJSON` does both.
+
+Where to put it: a new file `api/middleware.go`. Define three constants
+at the top:
+
+- `authorizationHeaderKey  = "authorization"`
+- `authorizationTypeBearer = "bearer"`
+- `authorizationPayloadKey = "authorization_payload"`
+
+And export the constructor as something like:
+  `authMiddleware(tokenMaker token.Maker) gin.HandlerFunc`
+
+
+## 3. Wire it into `setupRouter`
+
+In `api/server.go`, the public routes stay as-is (`POST /users`,
+`POST /users/login`). Group the protected ones:
+
+  authRoutes := router.Group("/").Use(authMiddleware(server.tokenMaker))
+  authRoutes.POST("/accounts", ...)
+  authRoutes.GET("/accounts/:id", ...)
+  authRoutes.GET("/accounts", ...)
+  authRoutes.POST("/transfers", ...)
+
+Everything under `authRoutes` runs the middleware before the handler.
+
+
+## 4. Use the payload inside handlers (the authorization part)
+
+Inside any protected handler, pull the payload back out:
+
+  authPayload := ctx.MustGet(authorizationPayloadKey).(*token.Payload)
+
+Now apply rules. For example in `createAccount`, don't trust
+`req.Owner` from the client — overwrite it:
+  `accountParams.Owner = authPayload.Username`
+A user should only create accounts for themselves.
+
+In `getAccount`, after fetching the account, compare
+`account.Owner != authPayload.Username` and return `403 Forbidden` if
+they don't match. Don't return 404 — the account exists, the user
+just isn't allowed to see it.
+
+In `listAccounts`, you'll likely want to filter by owner. That means
+a sqlc query change: add an `Owner` column filter to `ListAccounts`,
+regenerate, and pass `authPayload.Username` as the argument.
+
+In `createTransfer`, verify the *source* account is owned by the
+caller. The destination can belong to anyone.
+
+
+## 5. Update your existing tests
+
+All your account/transfer tests will start failing with 401. You need
+a helper that builds a valid `Authorization` header and sets it on
+the test request. Put it in `api/middleware_test.go` with a signature
+like:
+
+  func addAuthorization(
+      t *testing.T,
+      request *http.Request,
+      tokenMaker token.Maker,
+      authorizationType string,
+      username string,
+      duration time.Duration,
+  )
+
+It calls `tokenMaker.CreateToken(username, duration)` and sets
+`request.Header.Set(authorizationHeaderKey, authorizationType+" "+token)`.
+
+Then each existing test case gains a `setupAuth` field — a function
+that calls that helper. Different test cases use different setups:
+valid token, no header, unsupported scheme, invalid token, expired
+token. This gives you good coverage of the middleware itself *and*
+proper authorization in the handlers.
+
+
+## 6. Write dedicated middleware tests
+
+Separately from the handler tests, write a `TestAuthMiddleware` in
+`api/middleware_test.go` with table-driven cases for each failure
+mode above. Set up a minimal `gin.Engine`, register one dummy route
+using your middleware, issue a request for each case, and assert
+the status code.
+
+## 7. Balance check (judgment call). Your schema has no CHECK (balance >= 0) and I doubt your TransferTxn rejects overdrafts. That means the transfer currently succeeds with a negative
+from-balance. Two options:
+
+- Add a pre-check here: fail with 400 if fromAccount.Balance.LessThan(decimalAmount). Simple, but it's racy — two concurrent transfers could both pass the check. For a learning
+project, fine.
+- Do it properly inside TransferTxn under the row lock you already take, and return a typed error the handler maps to 400. More correct but more work.
+
+## Suggested order to tackle this
+
+1. Write `api/middleware.go`.
+2. Write `api/middleware_test.go` with the `addAuthorization` helper
+   and `TestAuthMiddleware`.
+3. Apply the middleware to routes in `setupRouter`.
+4. Update each handler to use `authPayload` for authorization rules
+   (update `ListAccounts` sqlc query here).
+5. Fix handler tests — add `setupAuth` to table cases, then add new
+   cases covering the auth failures.
+
+One concept per step; the tests at each step tell you whether it's
+working before you move on.

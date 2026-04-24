@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	db "github.com/jenkka/basic-bank-app/db/sqlc"
+	"github.com/jenkka/basic-bank-app/token"
 	"github.com/shopspring/decimal"
 )
 
@@ -26,6 +27,16 @@ func (server *Server) createTransfer(ctx *gin.Context) {
 		return
 	}
 
+	if req.FromAccountID == req.ToAccountID {
+		err := errors.New(
+			"origin and destination account IDs cannot be the same",
+		)
+		ctx.JSON(http.StatusBadRequest, errorResponse(err))
+		return
+	}
+
+	authPayload := ctx.MustGet(authorizationPayloadKey).(*token.Payload)
+
 	decimalAmount, err := decimal.NewFromString(req.Amount)
 	if err != nil || decimalAmount.LessThanOrEqual(decimal.Zero) {
 		ctx.JSON(
@@ -35,11 +46,29 @@ func (server *Server) createTransfer(ctx *gin.Context) {
 		return
 	}
 
-	if !server.validAccountCurrency(ctx, req.FromAccountID, req.Currency) {
+	fromAccount := server.verifyAccountExists(ctx, req.FromAccountID)
+	if fromAccount == nil {
 		return
 	}
 
-	if !server.validAccountCurrency(ctx, req.ToAccountID, req.Currency) {
+	if fromAccount.Owner != authPayload.Username {
+		err := errors.New(
+			"you are not authorized to send money from this account",
+		)
+		ctx.JSON(http.StatusForbidden, errorResponse(err))
+		return
+	}
+
+	toAccount := server.verifyAccountExists(ctx, req.ToAccountID)
+	if toAccount == nil {
+		return
+	}
+
+	if !verifyAccountCurrency(ctx, fromAccount, req.Currency) {
+		return
+	}
+
+	if !verifyAccountCurrency(ctx, toAccount, req.Currency) {
 		return
 	}
 
@@ -58,9 +87,9 @@ func (server *Server) createTransfer(ctx *gin.Context) {
 	ctx.JSON(http.StatusCreated, transfer)
 }
 
-func (server *Server) validAccountCurrency(
-	ctx *gin.Context, accountId int64, currency string,
-) bool {
+func (server *Server) verifyAccountExists(
+	ctx *gin.Context, accountId int64,
+) *db.Account {
 	account, err := server.store.GetAccount(ctx, accountId)
 	if err != nil {
 		switch err {
@@ -70,13 +99,19 @@ func (server *Server) validAccountCurrency(
 		default:
 			ctx.JSON(http.StatusInternalServerError, errorResponse(err))
 		}
-		return false
+		return nil
 	}
 
+	return &account
+}
+
+func verifyAccountCurrency(
+	ctx *gin.Context, account *db.Account, currency string,
+) bool {
 	if account.Currency != currency {
-		err = fmt.Errorf(
+		err := fmt.Errorf(
 			"currency mismatch for account %d: %s, vs %s",
-			accountId, account.Currency, currency,
+			account.ID, account.Currency, currency,
 		)
 		ctx.JSON(http.StatusBadRequest, errorResponse(err))
 		return false
