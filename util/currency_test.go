@@ -7,13 +7,13 @@ import (
 )
 
 func TestIsSupportedCurrency(t *testing.T) {
-	for _, currency := range []string{USD, EUR, CAD, MXN} {
+	for _, currency := range SupportedCurrencies {
 		t.Run(currency, func(t *testing.T) {
 			require.True(t, IsSupportedCurrency(currency))
 		})
 	}
 
-	for _, currency := range []string{"", "GBP", "usd", "123"} {
+	for _, currency := range []string{"", "RUB", "usd", "123"} {
 		t.Run(currency, func(t *testing.T) {
 			require.False(t, IsSupportedCurrency(currency))
 		})

@@ -1,17 +1,24 @@
 package util
 
+import "slices"
+
 const (
 	USD = "USD"
 	EUR = "EUR"
 	CAD = "CAD"
 	MXN = "MXN"
+	GBP = "GBP"
+	JPY = "JPY"
+	CHF = "CHF"
+	AUD = "AUD"
+	BRL = "BRL"
+	INR = "INR"
 )
 
-func IsSupportedCurrency(currency string) bool {
-	switch currency {
-	case USD, EUR, CAD, MXN:
-		return true
-	}
+var SupportedCurrencies = []string{
+	USD, EUR, CAD, MXN, GBP, JPY, CHF, AUD, BRL, INR,
+}
 
-	return false
+func IsSupportedCurrency(currency string) bool {
+	return slices.Contains(SupportedCurrencies, currency)
 }
