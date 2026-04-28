@@ -1,4 +1,4 @@
-module github.com/jenkka/basic-bank-app
+module github.com/jenkka/dummy-bank
 
 go 1.26.1
 

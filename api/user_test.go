@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	mockdb "github.com/jenkka/basic-bank-app/db/mock"
-	db "github.com/jenkka/basic-bank-app/db/sqlc"
-	"github.com/jenkka/basic-bank-app/util"
+	mockdb "github.com/jenkka/dummy-bank/db/mock"
+	db "github.com/jenkka/dummy-bank/db/sqlc"
+	"github.com/jenkka/dummy-bank/util"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"

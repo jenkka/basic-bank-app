@@ -7,8 +7,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	db "github.com/jenkka/basic-bank-app/db/sqlc"
-	"github.com/jenkka/basic-bank-app/token"
+	db "github.com/jenkka/dummy-bank/db/sqlc"
+	"github.com/jenkka/dummy-bank/token"
 	"github.com/shopspring/decimal"
 )
 

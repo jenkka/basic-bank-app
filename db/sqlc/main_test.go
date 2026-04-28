@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/jenkka/basic-bank-app/util"
+	"github.com/jenkka/dummy-bank/util"
 	_ "github.com/lib/pq"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"

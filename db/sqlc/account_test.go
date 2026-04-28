@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jenkka/basic-bank-app/util"
+	"github.com/jenkka/dummy-bank/util"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )

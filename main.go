@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"log"
 
-	"github.com/jenkka/basic-bank-app/api"
-	db "github.com/jenkka/basic-bank-app/db/sqlc"
-	"github.com/jenkka/basic-bank-app/util"
+	"github.com/jenkka/dummy-bank/api"
+	db "github.com/jenkka/dummy-bank/db/sqlc"
+	"github.com/jenkka/dummy-bank/util"
 	_ "github.com/lib/pq"
 )
 

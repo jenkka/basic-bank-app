@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jenkka/basic-bank-app/token"
+	"github.com/jenkka/dummy-bank/token"
 	"github.com/stretchr/testify/require"
 )
 
