@@ -1,5 +1,6 @@
 run-postgres:
-	docker run --name my-postgres -p 5432:5432 -e POSTGRES_USER=root -e POSTGRES_PASSWORD=secret -d postgres:latest
+	docker network inspect bank-network >/dev/null 2>&1 || docker network create bank-network
+	docker run --name my-postgres --network bank-network -p 5432:5432 -e POSTGRES_USER=root -e POSTGRES_PASSWORD=secret -d postgres:latest
 
 start-postgres:
 	docker start my-postgres

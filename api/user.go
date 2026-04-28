@@ -1,6 +1,8 @@
 package api
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -10,6 +12,21 @@ import (
 	"github.com/jenkka/basic-bank-app/util"
 	"github.com/lib/pq"
 )
+
+// Returned for any credential failure, to avoid user enumeration.
+var errInvalidCredentials = errors.New("invalid credentials")
+
+// Compared against on the user-not-found path so response time
+// matches the wrong-password path (defends against timing attacks).
+var dummyHash string
+
+func init() {
+	h, err := util.HashPassword("timing-equalization-dummy")
+	if err != nil {
+		panic(fmt.Sprintf("dummy hash init failed: %v", err))
+	}
+	dummyHash = h
+}
 
 type createUserRequest struct {
 	Username string `json:"username" binding:"required,alphanum"`
@@ -110,14 +127,23 @@ func (server *Server) loginUser(ctx *gin.Context) {
 
 	user, err := server.store.GetUser(ctx, req.Username)
 	if err != nil {
-		errMsg := fmt.Errorf("invalid credentials")
-		ctx.JSON(http.StatusInternalServerError, errorResponse(errMsg))
+		if errors.Is(err, sql.ErrNoRows) {
+			util.CheckPassword(req.Password, dummyHash)
+			ctx.JSON(
+				http.StatusUnauthorized,
+				errorResponse(errInvalidCredentials),
+			)
+			return
+		}
+		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
 
 	if !util.CheckPassword(req.Password, user.HashedPwd) {
-		errMsg := fmt.Errorf("the provided password is incorrect")
-		ctx.JSON(http.StatusUnauthorized, errorResponse(errMsg))
+		ctx.JSON(
+			http.StatusUnauthorized,
+			errorResponse(errInvalidCredentials),
+		)
 		return
 	}
 
