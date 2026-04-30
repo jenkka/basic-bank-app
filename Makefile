@@ -36,6 +36,9 @@ mock:
 	mockgen -package mockdb -destination db/mock/store.go github.com/jenkka/dummy-bank/db/sqlc Store
 
 test:
+	go test -v -cover -timeout 5m ./...
+
+racetest:
 	go test -v -race -cover -timeout 5m ./...
 
 server:
