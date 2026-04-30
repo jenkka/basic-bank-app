@@ -1,0 +1,9 @@
+name: Deploy to production
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: Build image
+    runs-on: ubuntu-latest
