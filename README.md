@@ -121,6 +121,7 @@ Not yet implemented (planned, course covers some of these):
 - Background workers for async tasks (e.g. welcome emails)
 - Structured logging and metrics
 - Kubernetes manifests and an automated cluster deploy
+- Add app.env to .dockerignore and use Kubernetes Secret instead
 
 ---
 
