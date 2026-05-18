@@ -16,6 +16,7 @@ spec:
     spec:
       containers:
       - name: dummy-bank-api
-        image: 417441726608.dkr.ecr.us-east-2.amazonaws.com/dummybank:c98c668b786d16477c33141331688039211e07b4
+        image: 417441726608.dkr.ecr.us-east-2.amazonaws.com/dummybank:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080

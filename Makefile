@@ -1,4 +1,4 @@
-.PHONY: cluster-up cluster-down deploy redeploy destroy logs status run-postgres start-postgres stop-postgres rm-postgres create-db drop-db migrateup migrateup1 migratedown migratedown1 sqlc mock test racetest server
+.PHONY: cluster-up cluster-down ingress-install grant-ci bootstrap deploy redeploy destroy logs status run-postgres start-postgres stop-postgres rm-postgres create-db drop-db migrateup migrateup1 migratedown migratedown1 sqlc mock test racetest server
 
 cluster-up:
 	eksctl create cluster -f eks/eks.yaml
@@ -6,14 +6,29 @@ cluster-up:
 cluster-down:
 	eksctl delete cluster -f eks/eks.yaml
 
+ingress-install:
+	kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.2/deploy/static/provider/aws/deploy.yaml
+	kubectl wait --namespace ingress-nginx \
+		--for=condition=ready pod \
+		--selector=app.kubernetes.io/component=controller \
+		--timeout=180s
+
+grant-ci:
+	eksctl create iamidentitymapping --cluster dummy-bank --region us-east-2 \
+		--arn arn:aws:iam::417441726608:user/github-ci --group system:masters --username github-ci
+
+bootstrap: cluster-up ingress-install grant-ci deploy
+
 deploy:
 	kubectl apply -f eks/deployment.yaml
 	kubectl apply -f eks/service.yaml
+	kubectl apply -f eks/ingress.yaml
 
 redeploy:
-	kubectl rollout restart deployment simple-bank-api-deployment
+	kubectl rollout restart deployment dummy-bank-api-deployment
 
 destroy:
+	kubectl delete -f eks/ingress.yaml
 	kubectl delete -f eks/service.yaml
 	kubectl delete -f eks/deployment.yaml
 
@@ -23,7 +38,7 @@ status:
 	@echo "\n=== Nodes ===" && kubectl get nodes
 
 logs:
-	kubectl logs -l app=simple-bank-api --tail=50 -f
+	kubectl logs -l app=dummy-bank-api --tail=50 -f
 
 run-postgres:
 	docker network inspect bank-network >/dev/null 2>&1 || docker network create bank-network

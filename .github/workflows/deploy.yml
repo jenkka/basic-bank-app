@@ -4,13 +4,18 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
-    name: Build image
+  deploy:
+    name: Deploy image
     runs-on: ubuntu-latest
 
     steps:
       - name: Checks out repository code
         uses: actions/checkout@v4
+
+      - uses: azure/setup-kubectl@v4
+        with:
+           version: 'v1.36.1'
+        id: install
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -39,5 +44,17 @@ jobs:
           REPOSITORY: dummybank
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG .
-          docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
+          docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG -t $REGISTRY/$REPOSITORY:latest .
+          docker push -a $REGISTRY/$REPOSITORY
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name dummy-bank --region us-east-2
+
+      - name: Deploy image to Amazon EKS
+        run: |
+          kubectl apply -f eks/aws-auth.yaml
+          kubectl apply -f eks/deployment.yaml
+          kubectl apply -f eks/service.yaml
+          kubectl apply -f eks/ingress.yaml
+          kubectl rollout restart deployment dummy-bank-api-deployment
+          kubectl rollout status deployment dummy-bank-api-deployment --timeout=5m

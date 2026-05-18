@@ -2,7 +2,7 @@ apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
 
 metadata:
-  name: simple-bank
+  name: dummy-bank
   region: us-east-2
 
 vpc:
@@ -10,7 +10,7 @@ vpc:
     gateway: Disable
 
 managedNodeGroups:
-  - name: simple-bank-node
+  - name: dummy-bank-node
     instanceType: t3.small
     desiredCapacity: 1
     minSize: 1
