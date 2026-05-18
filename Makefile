@@ -1,123 +1,149 @@
-.PHONY: cluster-up cluster-down ingress-install ingress-uninstall cert-manager-install cert-manager-uninstall issuer-install issuer-uninstall grant-ci bootstrap teardown deploy redeploy destroy logs status run-postgres start-postgres stop-postgres rm-postgres create-db drop-db migrateup migrateup1 migratedown migratedown1 sqlc mock test racetest server
+# ---- Configuration (override on the command line, e.g. `make migrateup DB_URL=...`) ----
+AWS_REGION             ?= us-east-2
+CLUSTER                ?= dummy-bank
+GITHUB_CI_ARN          ?= arn:aws:iam::417441726608:user/github-ci
+DB_URL                 ?= postgresql://root:secret@localhost:5432/dummy_bank?sslmode=disable
+MIGRATION_PATH         ?= db/migration/
+INGRESS_NGINX_MANIFEST ?= https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.2/deploy/static/provider/aws/deploy.yaml
+CERT_MANAGER_MANIFEST  ?= https://github.com/cert-manager/cert-manager/releases/download/v1.20.2/cert-manager.yaml
 
-cluster-up:
+.PHONY: help \
+	cluster-up cluster-down ingress-install ingress-uninstall \
+	cert-manager-install cert-manager-uninstall issuer-install issuer-uninstall \
+	grant-ci bootstrap teardown \
+	deploy redeploy destroy status logs check-aws \
+	run-postgres start-postgres stop-postgres rm-postgres create-db drop-db \
+	migrateup migrateup1 migratedown migratedown1 \
+	sqlc mock test racetest server
+
+.DEFAULT_GOAL := help
+
+help: ## Show this help
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} \
+		/^[a-zA-Z0-9_-]+:.*?##/ { printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2 } \
+		/^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) }' $(MAKEFILE_LIST)
+
+##@ EKS lifecycle
+
+cluster-up: ## Create the EKS cluster from eks/eks.yaml
 	eksctl create cluster -f eks/eks.yaml
 
-cluster-down:
+cluster-down: ## Delete the EKS cluster
 	eksctl delete cluster -f eks/eks.yaml
 
-ingress-install:
-	kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.2/deploy/static/provider/aws/deploy.yaml
+ingress-install: ## Install nginx-ingress and wait for it to be ready
+	kubectl apply -f $(INGRESS_NGINX_MANIFEST)
 	kubectl wait --namespace ingress-nginx \
 		--for=condition=ready pod \
 		--selector=app.kubernetes.io/component=controller \
 		--timeout=180s
 
-ingress-uninstall:
-	kubectl delete --ignore-not-found=true \
-		-f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.2/deploy/static/provider/aws/deploy.yaml
+ingress-uninstall: ## Remove nginx-ingress (and its cloud load balancer)
+	kubectl delete --ignore-not-found=true -f $(INGRESS_NGINX_MANIFEST)
 
-# cert-manager v1.20.2 pinned to match the version installed in-cluster.
-cert-manager-install:
-	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.20.2/cert-manager.yaml
+cert-manager-install: ## Install cert-manager (v1.20.2) and wait for it to be ready
+	kubectl apply -f $(CERT_MANAGER_MANIFEST)
 	kubectl wait --namespace cert-manager \
 		--for=condition=ready pod \
 		--selector=app.kubernetes.io/instance=cert-manager \
 		--timeout=180s
 
-cert-manager-uninstall:
-	kubectl delete --ignore-not-found=true \
-		-f https://github.com/cert-manager/cert-manager/releases/download/v1.20.2/cert-manager.yaml
+cert-manager-uninstall: ## Remove cert-manager
+	kubectl delete --ignore-not-found=true -f $(CERT_MANAGER_MANIFEST)
 
-# Applies the letsencrypt ClusterIssuer referenced by eks/ingress.yaml's
-# cert-manager.io/cluster-issuer annotation. Requires cert-manager-install first.
-issuer-install:
+issuer-install: ## Apply the letsencrypt ClusterIssuer (needs cert-manager first)
 	kubectl apply -f eks/issuer.yaml
 
-issuer-uninstall:
+issuer-uninstall: ## Remove the letsencrypt ClusterIssuer
 	kubectl delete --ignore-not-found=true -f eks/issuer.yaml
 
-grant-ci:
-	eksctl create iamidentitymapping --cluster dummy-bank --region us-east-2 \
-		--arn arn:aws:iam::417441726608:user/github-ci --group system:masters --username github-ci
+grant-ci: ## Map the github-ci IAM user into the cluster for CD
+	eksctl create iamidentitymapping --cluster $(CLUSTER) --region $(AWS_REGION) \
+		--arn $(GITHUB_CI_ARN) --group system:masters --username github-ci
 
-bootstrap: cluster-up ingress-install cert-manager-install issuer-install grant-ci deploy
+bootstrap: cluster-up ingress-install cert-manager-install issuer-install grant-ci deploy ## Stand up everything from scratch
 
 # Inverse of bootstrap: remove app, issuer, cert-manager, then the ingress
 # controller (and its ELB) before deleting the cluster, so no orphaned load
 # balancer survives cluster-down.
 # RDS is managed manually from the AWS console and intentionally not touched here.
-teardown: destroy issuer-uninstall cert-manager-uninstall ingress-uninstall cluster-down
+teardown: destroy issuer-uninstall cert-manager-uninstall ingress-uninstall cluster-down ## Tear everything down (inverse of bootstrap)
 
-deploy:
+##@ App deployment
+
+deploy: ## Apply the app deployment, service and ingress
 	kubectl apply -f eks/deployment.yaml
 	kubectl apply -f eks/service.yaml
 	kubectl apply -f eks/ingress.yaml
 
-redeploy:
+redeploy: ## Restart the API deployment to pull a fresh image
 	kubectl rollout restart deployment dummy-bank-api-deployment
 
-destroy:
+destroy: ## Remove the app deployment, service and ingress
 	kubectl delete --ignore-not-found=true -f eks/ingress.yaml
 	kubectl delete --ignore-not-found=true -f eks/service.yaml
 	kubectl delete --ignore-not-found=true -f eks/deployment.yaml
 
-status:
+status: ## Show pods, services and nodes
 	@echo "=== Pods ===" && kubectl get pods
 	@echo "\n=== Service ===" && kubectl get svc
 	@echo "\n=== Nodes ===" && kubectl get nodes
 
-logs:
+logs: ## Tail the API logs
 	kubectl logs -l app=dummy-bank-api --tail=50 -f
 
-check-aws:
-	@aws ec2 describe-instances --region us-east-2 \
+check-aws: ## List running EC2 instances and EKS clusters
+	@aws ec2 describe-instances --region $(AWS_REGION) \
 		--query 'Reservations[].Instances[] | [?State.Name==`running`].[InstanceId,InstanceType,LaunchTime]' \
 		--output table
-	@aws eks list-clusters --region us-east-2 --output table
+	@aws eks list-clusters --region $(AWS_REGION) --output table
 
-run-postgres:
+##@ Local database
+
+run-postgres: ## Create and start the local Postgres container
 	docker network inspect bank-network >/dev/null 2>&1 || docker network create bank-network
 	docker run --name dummy-bank-postgres --network bank-network -p 5432:5432 -e POSTGRES_USER=root -e POSTGRES_PASSWORD=secret -d postgres:17-alpine
 
-start-postgres:
+start-postgres: ## Start the existing Postgres container
 	docker start dummy-bank-postgres
 
-stop-postgres:
+stop-postgres: ## Stop the Postgres container
 	docker stop dummy-bank-postgres
 
-rm-postgres:
+rm-postgres: ## Remove the Postgres container
 	docker rm dummy-bank-postgres
 
-create-db:
+create-db: ## Create the dummy_bank database
 	docker exec -it dummy-bank-postgres createdb --username=root --owner=root dummy_bank
 
-drop-db:
+drop-db: ## Drop the dummy_bank database
 	docker exec -it dummy-bank-postgres dropdb dummy_bank
 
-migrateup:
-	migrate -path db/migration/ -database "postgresql://root:secret@localhost:5432/dummy_bank?sslmode=disable" -verbose up
+migrateup: ## Apply all up migrations
+	migrate -path $(MIGRATION_PATH) -database "$(DB_URL)" -verbose up
 
-migrateup1:
-	migrate -path db/migration/ -database "postgresql://root:secret@localhost:5432/dummy_bank?sslmode=disable" -verbose up 1
+migrateup1: ## Apply the next up migration
+	migrate -path $(MIGRATION_PATH) -database "$(DB_URL)" -verbose up 1
 
-migratedown:
-	migrate -path db/migration/ -database "postgresql://root:secret@localhost:5432/dummy_bank?sslmode=disable" -verbose down
+migratedown: ## Roll back all migrations
+	migrate -path $(MIGRATION_PATH) -database "$(DB_URL)" -verbose down
 
-migratedown1:
-	migrate -path db/migration/ -database "postgresql://root:secret@localhost:5432/dummy_bank?sslmode=disable" -verbose down 1
+migratedown1: ## Roll back the last migration
+	migrate -path $(MIGRATION_PATH) -database "$(DB_URL)" -verbose down 1
 
-sqlc:
+##@ Codegen & tests
+
+sqlc: ## Regenerate Go bindings from SQL
 	sqlc generate
 
-mock:
+mock: ## Regenerate gomock mocks for the Store interface
 	mockgen -package mockdb -destination db/mock/store.go github.com/jenkka/dummy-bank/db/sqlc Store
 
-test:
+test: ## Run the full test suite with coverage
 	go test -v -cover -timeout 5m ./...
 
-racetest:
+racetest: ## Run tests with the race detector
 	go test -v -race -cover -timeout 5m ./...
 
-server:
+server: ## Run the API on :8080
 	go run main.go

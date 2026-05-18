@@ -27,6 +27,7 @@ Built as a deep dive into production Go backend patterns. The architectural skel
 | Container | Multistage Docker build, Docker Compose for local development |
 | CI | GitHub Actions running the full test suite against a Postgres service container |
 | Image registry | AWS ECR Public via GitHub Actions on push to `main` |
+| Deploy | AWS EKS (eksctl-managed), nginx-ingress, cert-manager + Let's Encrypt TLS, config from AWS Secrets Manager |
 
 ## Architecture
 
@@ -78,6 +79,8 @@ These are places where I diverged from the course's defaults:
 
 **Docker Compose orchestrates startup natively, without shell scripts.** The course uses `wait-for.sh` and `start.sh` shell scripts inside the container to gate startup on Postgres readiness. I replaced both with native Compose features: a `healthcheck` block on the `postgres` service runs `pg_isready` until the database accepts connections, and the `migrate` and `server` services use `depends_on` with `condition: service_healthy` and `condition: service_completed_successfully` to wait on Postgres health and migration completion respectively. The result is no shell scripts in the image and a clearer dependency graph in one file.
 
+**Automatic TLS and a symmetric, idempotent cluster lifecycle.** The course terminates TLS manually. Here, cert-manager runs in-cluster with a Let's Encrypt `ClusterIssuer`; the ingress is annotated so certificates are issued and renewed automatically with no manual steps. The Makefile lifecycle is deliberately symmetric: `make bootstrap` and `make teardown` are exact inverses (cluster → ingress → cert-manager → issuer → app, and the reverse), with `--ignore-not-found` on every delete so teardown is idempotent and partial states recover cleanly. `teardown` removes the ingress controller — and its cloud load balancer — *before* deleting the cluster, which avoids the classic eksctl failure where an orphaned ELB blocks VPC teardown. The intent is that no required step lives only in someone's shell history.
+
 ## Running locally
 
 The fastest path is Docker Compose, which brings up Postgres, runs migrations, and starts the server:
@@ -101,18 +104,36 @@ make server            # run the API on :8080
 
 Configuration is loaded from `app.env` in the working directory, with environment variables overriding file values.
 
-## Continuous integration
+## Continuous integration & deployment
 
-Two GitHub Actions workflows run on push to `main`:
+Two GitHub Actions workflows:
 
-1. **`test.yml`** — Spins up a Postgres service container, applies migrations, runs `go vet`, and executes the test suite. Pull requests run the same workflow.
-2. **`deploy.yml`** — On a successful push to `main`, builds the Docker image, tags it with the commit SHA, and pushes to AWS ECR Public.
+1. **`test.yml`** — Runs on every push to `main` and on pull requests. Spins up a Postgres service container, applies migrations, runs `go vet`, and executes the test suite. Never touches AWS.
+2. **`deploy.yml`** — Full deploy pipeline: pulls runtime config from AWS Secrets Manager into `app.env`, builds and pushes the image to AWS ECR Public (tagged with the commit SHA), then `kubectl apply`s the deployment, service, issuer, and ingress to EKS and waits on the rollout.
 
-Pushing to ECR is the end of the current automation; deploying the new image to a running cluster is a separate step (and a planned improvement).
+> **Note:** `deploy.yml` is currently `workflow_dispatch`-only (manual). The live cluster is torn down when idle to avoid cloud cost, so auto-deploy-on-push is disabled. The entire environment is reproducible from scratch with `make bootstrap`; restoring the `push` trigger re-arms continuous deployment.
+
+## Deployment
+
+The production target is AWS EKS, fully scripted through the Makefile so the
+environment can be created or destroyed in one command.
+
+```bash
+make bootstrap   # cluster-up → ingress-install → cert-manager-install → issuer-install → grant-ci → deploy
+make teardown    # destroy → issuer-uninstall → cert-manager-uninstall → ingress-uninstall → cluster-down
+```
+
+- **Cluster** — `eks/eks.yaml` defines an eksctl-managed cluster (managed node group, NAT gateway disabled to keep cost down).
+- **Ingress** — nginx-ingress fronts the API behind an AWS load balancer.
+- **TLS** — cert-manager with a Let's Encrypt `ClusterIssuer` (`eks/issuer.yaml`) issues and auto-renews the certificate for the API host; the ingress requests it via annotation. The HTTP-01 challenge is solved through the same nginx ingress.
+- **Config & secrets** — runtime config lives in AWS Secrets Manager and is materialized into `app.env` at build time by `deploy.yml`; nothing sensitive is committed.
+- **Database** — an AWS RDS PostgreSQL instance, provisioned and managed outside the cluster lifecycle (intentionally not in `make teardown`, so the data layer is decoupled from cluster churn).
+
+`bootstrap` and `teardown` are exact inverses and safe to re-run; `teardown` removes the load balancer before the cluster so no AWS resources are orphaned.
 
 ## Status and what's next
 
-Implemented: users, accounts, transfers, JWT auth, authorization middleware, transactional balance updates with deadlock-safe ordering, unit-test coverage of the API and store layers with gomock, Dockerized local dev, and CI through ECR push.
+Implemented: users, accounts, transfers, JWT auth, authorization middleware, transactional balance updates with deadlock-safe ordering, unit-test coverage of the API and store layers with gomock, Dockerized local dev, CI through the test suite, and a fully scripted EKS deployment with nginx-ingress and automatic Let's Encrypt TLS.
 
 Not yet implemented (planned, course covers some of these):
 - gRPC endpoints alongside REST
@@ -120,8 +141,7 @@ Not yet implemented (planned, course covers some of these):
 - Refresh tokens with session storage
 - Background workers for async tasks (e.g. welcome emails)
 - Structured logging and metrics
-- Kubernetes manifests and an automated cluster deploy
-- Add app.env to .dockerignore and use Kubernetes Secret instead
+- Add `app.env` to `.dockerignore` and source config from a Kubernetes Secret instead of baking it into the image
 
 ---
 
