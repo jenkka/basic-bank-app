@@ -12,7 +12,7 @@ vpc:
 managedNodeGroups:
   - name: dummy-bank-node
     instanceType: t3.small
-    desiredCapacity: 1
+    desiredCapacity: 2
     minSize: 1
     maxSize: 2
     volumeSize: 20
