@@ -1,7 +1,8 @@
 name: Deploy to production
+# Auto-deploy on push disabled while AWS is paused (2026-05-18).
+# Re-enable by restoring the `push` trigger below. Currently manual-only.
 on:
-  push:
-    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -55,6 +56,7 @@ jobs:
           kubectl apply -f eks/aws-auth.yaml
           kubectl apply -f eks/deployment.yaml
           kubectl apply -f eks/service.yaml
+          kubectl apply -f eks/issuer.yaml
           kubectl apply -f eks/ingress.yaml
           kubectl rollout restart deployment dummy-bank-api-deployment
           kubectl rollout status deployment dummy-bank-api-deployment --timeout=5m

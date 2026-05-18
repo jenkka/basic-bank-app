@@ -1,4 +1,4 @@
-.PHONY: cluster-up cluster-down ingress-install grant-ci bootstrap deploy redeploy destroy logs status run-postgres start-postgres stop-postgres rm-postgres create-db drop-db migrateup migrateup1 migratedown migratedown1 sqlc mock test racetest server
+.PHONY: cluster-up cluster-down ingress-install ingress-uninstall cert-manager-install cert-manager-uninstall issuer-install issuer-uninstall grant-ci bootstrap teardown deploy redeploy destroy logs status run-postgres start-postgres stop-postgres rm-postgres create-db drop-db migrateup migrateup1 migratedown migratedown1 sqlc mock test racetest server
 
 cluster-up:
 	eksctl create cluster -f eks/eks.yaml
@@ -13,11 +13,41 @@ ingress-install:
 		--selector=app.kubernetes.io/component=controller \
 		--timeout=180s
 
+ingress-uninstall:
+	kubectl delete --ignore-not-found=true \
+		-f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.2/deploy/static/provider/aws/deploy.yaml
+
+# cert-manager v1.20.2 pinned to match the version installed in-cluster.
+cert-manager-install:
+	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.20.2/cert-manager.yaml
+	kubectl wait --namespace cert-manager \
+		--for=condition=ready pod \
+		--selector=app.kubernetes.io/instance=cert-manager \
+		--timeout=180s
+
+cert-manager-uninstall:
+	kubectl delete --ignore-not-found=true \
+		-f https://github.com/cert-manager/cert-manager/releases/download/v1.20.2/cert-manager.yaml
+
+# Applies the letsencrypt ClusterIssuer referenced by eks/ingress.yaml's
+# cert-manager.io/cluster-issuer annotation. Requires cert-manager-install first.
+issuer-install:
+	kubectl apply -f eks/issuer.yaml
+
+issuer-uninstall:
+	kubectl delete --ignore-not-found=true -f eks/issuer.yaml
+
 grant-ci:
 	eksctl create iamidentitymapping --cluster dummy-bank --region us-east-2 \
 		--arn arn:aws:iam::417441726608:user/github-ci --group system:masters --username github-ci
 
-bootstrap: cluster-up ingress-install grant-ci deploy
+bootstrap: cluster-up ingress-install cert-manager-install issuer-install grant-ci deploy
+
+# Inverse of bootstrap: remove app, issuer, cert-manager, then the ingress
+# controller (and its ELB) before deleting the cluster, so no orphaned load
+# balancer survives cluster-down.
+# RDS is managed manually from the AWS console and intentionally not touched here.
+teardown: destroy issuer-uninstall cert-manager-uninstall ingress-uninstall cluster-down
 
 deploy:
 	kubectl apply -f eks/deployment.yaml
@@ -28,9 +58,9 @@ redeploy:
 	kubectl rollout restart deployment dummy-bank-api-deployment
 
 destroy:
-	kubectl delete -f eks/ingress.yaml
-	kubectl delete -f eks/service.yaml
-	kubectl delete -f eks/deployment.yaml
+	kubectl delete --ignore-not-found=true -f eks/ingress.yaml
+	kubectl delete --ignore-not-found=true -f eks/service.yaml
+	kubectl delete --ignore-not-found=true -f eks/deployment.yaml
 
 status:
 	@echo "=== Pods ===" && kubectl get pods
