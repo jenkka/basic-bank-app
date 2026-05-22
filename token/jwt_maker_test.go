@@ -19,11 +19,12 @@ func TestJWTMaker(t *testing.T) {
 	issuedAt := time.Now()
 	expiresAt := issuedAt.Add(duration)
 
-	token, err := maker.CreateToken(username, duration)
+	token, payload, err := maker.CreateToken(username, duration)
 	require.NoError(t, err)
 	require.NotEmpty(t, token)
+	require.NotEmpty(t, payload)
 
-	payload, err := maker.VerifyToken(token)
+	payload, err = maker.VerifyToken(token)
 	require.NoError(t, err)
 	require.NotNil(t, payload)
 	require.NotZero(t, payload.ID)
@@ -40,11 +41,12 @@ func TestExpiredJWTToken(t *testing.T) {
 	username := util.RandomUsername()
 	duration := -time.Minute
 
-	token, err := maker.CreateToken(username, duration)
+	token, payload, err := maker.CreateToken(username, duration)
 	require.NoError(t, err)
 	require.NotEmpty(t, token)
+	require.NotEmpty(t, payload)
 
-	payload, err := maker.VerifyToken(token)
+	payload, err = maker.VerifyToken(token)
 	require.Nil(t, payload)
 	require.ErrorIs(t, err, ErrExpiredToken)
 }
@@ -75,11 +77,12 @@ func TestInvalidJWTTokenBadSignature(t *testing.T) {
 	makerB, err := NewJWTMaker(util.RandomString(32))
 	require.NoError(t, err)
 
-	token, err := makerA.CreateToken(util.RandomUsername(), time.Minute)
+	token, payload, err := makerA.CreateToken(util.RandomUsername(), time.Minute)
 	require.NoError(t, err)
 	require.NotEmpty(t, token)
+	require.NotEmpty(t, payload)
 
-	payload, err := makerB.VerifyToken(token)
+	payload, err = makerB.VerifyToken(token)
 	require.Nil(t, payload)
 	require.ErrorIs(t, err, ErrInvalidToken)
 }

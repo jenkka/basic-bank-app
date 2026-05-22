@@ -1,0 +1,291 @@
+================================================================
+Lecture 39 — Manage User Session with Refresh Token
+================================================================
+
+WHY ARE WE DOING THIS?
+----------------------
+Right now loginUser returns a single access token that lasts a long
+time (whatever ACCESS_TOKEN_DURATION is). That's a security problem:
+- If the token leaks, an attacker has access for hours.
+- If we make it short-lived instead, the user has to log in every
+  15 minutes, which is awful UX.
+
+The standard fix is two tokens:
+  - access token  -> short-lived  (e.g. 15 min), used on every API call
+  - refresh token -> long-lived   (e.g. 24h),   used ONLY to mint new
+                                                 access tokens
+
+We also persist a "session" row in the DB for every refresh token.
+That lets us REVOKE a refresh token (block the session) without
+having to rotate the signing key — JWTs alone can't be revoked.
+
+The flow after this lecture:
+  1. POST /users/login -> returns access_token + refresh_token + session_id
+  2. Client uses access_token until it expires
+  3. When it expires, client calls POST /tokens/renew_access with the
+     refresh_token, gets a fresh access_token back
+  4. When the refresh_token itself expires, user logs in again
+
+================================================================
+STEP 1 — Add RefreshTokenDuration to the config
+================================================================
+
+Files: util/config.go, app.env, app.env.example
+
+WHY: We need a separate, much longer duration for refresh tokens.
+Keep access token short, refresh token long.
+
+[ ] Add field to util/config.go Config struct:
+        RefreshTokenDuration time.Duration `mapstructure:"REFRESH_TOKEN_DURATION"`
+
+[ ] Add to app.env.example:
+        REFRESH_TOKEN_DURATION=
+
+[ ] Add to your local app.env (something like 24h):
+        REFRESH_TOKEN_DURATION=24h
+
+================================================================
+STEP 2 — Make CreateToken also return the Payload
+================================================================
+
+Files: token/maker.go, token/jwt_maker.go, token/jwt_maker_test.go
+
+WHY: We need to know the token's ID (jti / UUID) and ExpiresAt
+when we create it, because:
+  - we'll store the refresh token's ID as the session's primary key
+  - we'll return ExpiresAt to the client so it knows when to refresh
+
+Right now CreateToken only returns the signed string. We have to
+change its signature to also give us back the *Payload.
+
+[ ] Update the Maker interface in token/maker.go:
+        CreateToken(username string, duration time.Duration) (string, *Payload, error)
+
+[ ] Update JWTMaker.CreateToken in token/jwt_maker.go to return the
+    payload it already builds internally.
+
+[ ] Fix the compile errors that fall out (jwt_maker_test.go, anywhere
+    in api/ that calls CreateToken — currently just api/user.go's
+    loginUser and api/main_test.go test helpers if any).
+
+================================================================
+STEP 3 — Create the sessions table migration
+================================================================
+
+Files: db/migration/000003_add_sessions.up.sql
+       db/migration/000003_add_sessions.down.sql
+
+WHY: We need to remember each issued refresh token so we can:
+  - block it (logout, suspicious activity)
+  - detect reuse / replay
+  - tie it to a user agent + IP for audit
+
+The session's primary key IS the refresh token's UUID (the jti
+claim). When the client presents a refresh token, we parse it,
+read its ID, and look up the session by that ID.
+
+[ ] Write 000003_add_sessions.up.sql:
+
+        CREATE TABLE "sessions" (
+          "id"            uuid PRIMARY KEY,
+          "username"      varchar NOT NULL,
+          "refresh_token" varchar NOT NULL,
+          "user_agent"    varchar NOT NULL,
+          "client_ip"     varchar NOT NULL,
+          "is_blocked"    boolean NOT NULL DEFAULT false,
+          "expires_at"    timestamptz NOT NULL,
+          "created_at"    timestamptz NOT NULL DEFAULT (now())
+        );
+
+        ALTER TABLE "sessions"
+          ADD FOREIGN KEY ("username") REFERENCES "users" ("username");
+
+[ ] Write 000003_add_sessions.down.sql:
+
+        DROP TABLE IF EXISTS "sessions";
+
+[ ] Run the migration (check your Makefile for the migrateup target):
+        make migrateup
+
+Why store the refresh_token string AND the id separately?
+  - id is the lookup key
+  - storing the full token string lets us double-check that the
+    token presented matches what we issued (defense in depth)
+
+================================================================
+STEP 4 — Add sqlc queries for sessions
+================================================================
+
+Files: db/query/session.sql
+
+WHY: We need two queries: one to insert a session at login time,
+and one to fetch a session at renew time.
+
+[ ] Create db/query/session.sql:
+
+        -- name: CreateSession :one
+        INSERT INTO sessions (
+          id,
+          username,
+          refresh_token,
+          user_agent,
+          client_ip,
+          is_blocked,
+          expires_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7
+        ) RETURNING *;
+
+        -- name: GetSession :one
+        SELECT * FROM sessions
+        WHERE id = $1 LIMIT 1;
+
+[ ] Regenerate sqlc code (check your Makefile for the sqlc target):
+        make sqlc
+
+This generates Session struct + CreateSession/GetSession methods
+on the Queries type, which makes them available on Store.
+
+================================================================
+STEP 5 — Update loginUser to issue a refresh token + session
+================================================================
+
+File: api/user.go
+
+WHY: After this step, login returns everything the client needs:
+short access token to use NOW, long refresh token to use LATER,
+plus the expiry times so the client can plan refreshes.
+
+[ ] Expand loginUserResponse:
+
+        type loginUserResponse struct {
+            SessionID             uuid.UUID    `json:"session_id"`
+            AccessToken           string       `json:"access_token"`
+            AccessTokenExpiresAt  time.Time    `json:"access_token_expires_at"`
+            RefreshToken          string       `json:"refresh_token"`
+            RefreshTokenExpiresAt time.Time    `json:"refresh_token_expires_at"`
+            User                  userResponse `json:"user"`
+        }
+
+[ ] In loginUser handler, after successful password check:
+    a. Call tokenMaker.CreateToken with AccessTokenDuration  -> access token + accessPayload
+    b. Call tokenMaker.CreateToken with RefreshTokenDuration -> refresh token + refreshPayload
+    c. Call server.store.CreateSession with:
+         ID:            refreshPayload.ID (parsed to uuid.UUID)
+         Username:      user.Username
+         RefreshToken:  refreshToken
+         UserAgent:     ctx.Request.UserAgent()
+         ClientIP:      ctx.ClientIP()
+         IsBlocked:     false
+         ExpiresAt:     refreshPayload.ExpiresAt.Time
+    d. Build the response from session.ID, both tokens, both expiries,
+       and the userResponse.
+
+NOTE: payload.ID is a string (the UUID stringified into the jti
+claim). You'll need uuid.Parse(refreshPayload.ID) to get a uuid.UUID
+for the session row.
+
+================================================================
+STEP 6 — Add the renewAccessToken handler
+================================================================
+
+File: api/token.go (new file)
+
+WHY: This is the whole point. Client posts a refresh token, server
+validates it AND its session, then mints a new access token.
+
+[ ] Create api/token.go with:
+
+        type renewAccessTokenRequest struct {
+            RefreshToken string `json:"refresh_token" binding:"required"`
+        }
+
+        type renewAccessTokenResponse struct {
+            AccessToken          string    `json:"access_token"`
+            AccessTokenExpiresAt time.Time `json:"access_token_expires_at"`
+        }
+
+        func (server *Server) renewAccessToken(ctx *gin.Context) {
+            // 1. Bind JSON
+            // 2. tokenMaker.VerifyToken(req.RefreshToken)
+            //    -> if invalid/expired -> 401
+            // 3. server.store.GetSession(ctx, parsedUUID)
+            //    -> sql.ErrNoRows -> 404
+            //    -> other error    -> 500
+            // 4. Validate the session:
+            //      session.IsBlocked              -> 401 "blocked session"
+            //      session.Username != payload.Username -> 401 "wrong user"
+            //      session.RefreshToken != req.RefreshToken -> 401 "mismatched token"
+            //      time.Now().After(session.ExpiresAt) -> 401 "expired session"
+            // 5. tokenMaker.CreateToken(payload.Username, AccessTokenDuration)
+            // 6. Return new access_token + access_token_expires_at
+        }
+
+WHY each check?
+  - VerifyToken: makes sure the signature is valid and not expired
+  - GetSession: makes sure we actually issued this token
+  - IsBlocked: lets us revoke without changing keys
+  - Username mismatch: defense against token forgery edge cases
+  - Token string mismatch: catches a refresh token swapped for
+    another valid one belonging to the same session id (paranoid
+    but cheap)
+  - Session ExpiresAt check: redundant with JWT exp, but the DB
+    is authoritative — if you ever shorten sessions server-side
+    they expire immediately
+
+================================================================
+STEP 7 — Wire the new route
+================================================================
+
+File: api/server.go
+
+WHY: The renew endpoint must be UNAUTHENTICATED — the user's
+access token is already expired by the time they call this, so
+it can't pass auth middleware. The refresh token itself is the
+credential.
+
+[ ] In setupRouter, add (alongside the other public routes):
+        router.POST("/tokens/renew_access", server.renewAccessToken)
+
+================================================================
+STEP 8 — Test it manually
+================================================================
+
+[ ] Start the server: make server
+[ ] POST /users/login           -> grab refresh_token from response
+[ ] Wait for access_token to expire (or set ACCESS_TOKEN_DURATION
+    to 15s temporarily to test fast)
+[ ] POST /tokens/renew_access with { "refresh_token": "..." }
+    -> should return a fresh access_token
+[ ] POST /tokens/renew_access with a garbage token -> 401
+[ ] Manually flip is_blocked=true on the session row in psql,
+    try renewing -> should fail with "blocked session"
+
+================================================================
+STEP 9 (optional) — Update tests
+================================================================
+
+[ ] api/user_test.go: assertions for the new response fields.
+[ ] api/main_test.go: any test helpers that call CreateToken need
+    the new (string, *Payload, error) signature.
+[ ] Add api/token_test.go for the renew endpoint if you want
+    coverage parity with the rest of the api/ package.
+
+================================================================
+GOTCHAS YOU'LL HIT
+================================================================
+
+- Forgetting to regenerate sqlc after editing session.sql -> the
+  Store interface won't have CreateSession.
+
+- payload.ID is a string; the session.id column is uuid. Use
+  uuid.Parse() and handle the (unlikely) error.
+
+- payload.ExpiresAt is a *jwt.NumericDate (has a .Time field), not
+  a time.Time directly. Use refreshPayload.ExpiresAt.Time.
+
+- If you import "github.com/google/uuid" in api/user.go for the
+  first time, remember to add it to go.mod via "go mod tidy".
+
+- Don't add the renew route inside the authRoutes group — that
+  middleware requires a valid access token, defeating the purpose.
