@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package dummybank.v1;
+
+import "dummybank/v1/user.proto";
+
+option go_package = "github.com/jenkka/dummy-bank/pb/dummybank/v1;dummybankv1";
+
+message CreateUserRequest {
+  string username = 1;
+  string password = 2;
+  string email = 3;
+  string full_name = 4;
+}
+
+message CreateUserResponse {
+  User user = 1;
+}

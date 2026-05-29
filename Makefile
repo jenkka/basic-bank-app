@@ -14,7 +14,7 @@ CERT_MANAGER_MANIFEST  ?= https://github.com/cert-manager/cert-manager/releases/
 	deploy redeploy destroy status logs check-aws \
 	run-postgres start-postgres stop-postgres rm-postgres create-db drop-db \
 	migrateup migrateup1 migratedown migratedown1 \
-	sqlc mock test racetest server
+	sqlc mock test racetest server proto
 
 .DEFAULT_GOAL := help
 
@@ -22,6 +22,11 @@ help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} \
 		/^[a-zA-Z0-9_-]+:.*?##/ { printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2 } \
 		/^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) }' $(MAKEFILE_LIST)
+
+##@ Proto
+proto:
+	rm -rf pb/*
+	buf generate
 
 ##@ EKS lifecycle
 

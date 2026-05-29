@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package dummybank.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/jenkka/dummy-bank/pb/dummybank/v1;dummybankv1";
+
+message User {
+  string username = 1;
+  string email = 2;
+  string full_name = 3;
+  google.protobuf.Timestamp password_created_at = 4;
+  google.protobuf.Timestamp password_changed_at = 5;
+}

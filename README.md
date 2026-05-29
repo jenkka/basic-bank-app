@@ -139,10 +139,8 @@ Implemented: users, accounts, transfers, JWT auth with short-lived access tokens
 
 Not yet implemented (planned, course covers some of these):
 - gRPC endpoints alongside REST
-- PASETO as an alternative token format behind the existing `Maker` interface
 - Background workers for async tasks (e.g. welcome emails)
 - Structured logging and metrics
-- Add `app.env` to `.dockerignore` and source config from a Kubernetes Secret instead of baking it into the image
 
 ---
 

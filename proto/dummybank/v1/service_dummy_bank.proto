@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package dummybank.v1;
+
+import "dummybank/v1/rpc_create_user.proto";
+import "dummybank/v1/rpc_login_user.proto";
+
+option go_package = "github.com/jenkka/dummy-bank/pb/dummybank/v1;dummybankv1";
+
+service DummyBankService {
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse) {}
+  rpc LoginUser(LoginUserRequest) returns (LoginUserResponse) {}
+}
