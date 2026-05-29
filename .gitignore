@@ -21,8 +21,11 @@ profile.cov
 go.work
 go.work.sum
 
-# env file
+# env files
 *.env
 
 # app binary
 dummy-bank
+
+# temp files
+tmp/

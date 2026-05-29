@@ -14,7 +14,7 @@ CERT_MANAGER_MANIFEST  ?= https://github.com/cert-manager/cert-manager/releases/
 	deploy redeploy destroy status logs check-aws \
 	run-postgres start-postgres stop-postgres rm-postgres create-db drop-db \
 	migrateup migrateup1 migratedown migratedown1 \
-	sqlc mock test racetest server proto
+	sqlc mock test racetest server proto evans
 
 .DEFAULT_GOAL := help
 
@@ -23,10 +23,13 @@ help: ## Show this help
 		/^[a-zA-Z0-9_-]+:.*?##/ { printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2 } \
 		/^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) }' $(MAKEFILE_LIST)
 
-##@ Proto
+##@ gRPC
 proto:
 	rm -rf pb/*
 	buf generate
+
+evans:
+	evans -r repl --host localhost --port 9090
 
 ##@ EKS lifecycle
 
