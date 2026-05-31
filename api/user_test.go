@@ -157,7 +157,7 @@ func TestCreateUserAPI(t *testing.T) {
 						db.User{},
 						&pq.Error{
 							Code:       "23505",
-							Constraint: usersPkeyConstraint,
+							Constraint: UsersPkeyConstraint,
 						},
 					)
 			},
@@ -184,7 +184,7 @@ func TestCreateUserAPI(t *testing.T) {
 						db.User{},
 						&pq.Error{
 							Code:       "23505",
-							Constraint: usersEmailKeyConstraint,
+							Constraint: UsersEmailKeyConstraint,
 						},
 					)
 			},

@@ -81,14 +81,14 @@ func (server *Server) createUser(ctx *gin.Context) {
 	user, err := server.store.CreateUser(ctx, userParams)
 	if err != nil {
 		if pqError, ok := err.(*pq.Error); ok {
-			if pqError.Code.Name() == uniqueViolation {
+			if pqError.Code.Name() == UniqueViolation {
 				switch pqError.Constraint {
-				case usersPkeyConstraint:
+				case UsersPkeyConstraint:
 					err = fmt.Errorf(
 						"a user with the username %s already exists",
 						userParams.Username,
 					)
-				case usersEmailKeyConstraint:
+				case UsersEmailKeyConstraint:
 					err = fmt.Errorf(
 						"a user with the email %s already exists",
 						userParams.Email,
@@ -157,6 +157,7 @@ func (server *Server) loginUser(ctx *gin.Context) {
 		server.config.AccessTokenDuration,
 	)
 	if err != nil {
+		err = fmt.Errorf("failed to create access token: %w", err)
 		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
@@ -166,6 +167,7 @@ func (server *Server) loginUser(ctx *gin.Context) {
 		server.config.RefreshTokenDuration,
 	)
 	if err != nil {
+		err = fmt.Errorf("failed to create refresh token: %w", err)
 		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}

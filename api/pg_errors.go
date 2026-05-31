@@ -1,8 +1,8 @@
 package api
 
 const (
-	fkViolation             = "foreign_key_violation"
-	uniqueViolation         = "unique_violation"
-	usersPkeyConstraint     = "users_pkey"
-	usersEmailKeyConstraint = "users_email_key"
+	FkViolation             = "foreign_key_violation"
+	UniqueViolation         = "unique_violation"
+	UsersPkeyConstraint     = "users_pkey"
+	UsersEmailKeyConstraint = "users_email_key"
 )

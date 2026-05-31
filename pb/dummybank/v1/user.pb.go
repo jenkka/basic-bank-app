@@ -27,8 +27,8 @@ type User struct {
 	Username          string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
 	Email             string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
 	FullName          string                 `protobuf:"bytes,3,opt,name=full_name,json=fullName,proto3" json:"full_name,omitempty"`
-	PasswordCreatedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=password_created_at,json=passwordCreatedAt,proto3" json:"password_created_at,omitempty"`
-	PasswordChangedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=password_changed_at,json=passwordChangedAt,proto3" json:"password_changed_at,omitempty"`
+	CreatedAt         *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	PasswordUpdatedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=password_updated_at,json=passwordUpdatedAt,proto3" json:"password_updated_at,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -84,16 +84,16 @@ func (x *User) GetFullName() string {
 	return ""
 }
 
-func (x *User) GetPasswordCreatedAt() *timestamppb.Timestamp {
+func (x *User) GetCreatedAt() *timestamppb.Timestamp {
 	if x != nil {
-		return x.PasswordCreatedAt
+		return x.CreatedAt
 	}
 	return nil
 }
 
-func (x *User) GetPasswordChangedAt() *timestamppb.Timestamp {
+func (x *User) GetPasswordUpdatedAt() *timestamppb.Timestamp {
 	if x != nil {
-		return x.PasswordChangedAt
+		return x.PasswordUpdatedAt
 	}
 	return nil
 }
@@ -102,13 +102,14 @@ var File_dummybank_v1_user_proto protoreflect.FileDescriptor
 
 const file_dummybank_v1_user_proto_rawDesc = "" +
 	"\n" +
-	"\x17dummybank/v1/user.proto\x12\fdummybank.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xed\x01\n" +
+	"\x17dummybank/v1/user.proto\x12\fdummybank.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xdc\x01\n" +
 	"\x04User\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x1b\n" +
-	"\tfull_name\x18\x03 \x01(\tR\bfullName\x12J\n" +
-	"\x13password_created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x11passwordCreatedAt\x12J\n" +
-	"\x13password_changed_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x11passwordChangedAtB:Z8github.com/jenkka/dummy-bank/pb/dummybank/v1;dummybankv1b\x06proto3"
+	"\tfull_name\x18\x03 \x01(\tR\bfullName\x129\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12J\n" +
+	"\x13password_updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x11passwordUpdatedAtB:Z8github.com/jenkka/dummy-bank/pb/dummybank/v1;dummybankv1b\x06proto3"
 
 var (
 	file_dummybank_v1_user_proto_rawDescOnce sync.Once
@@ -128,8 +129,8 @@ var file_dummybank_v1_user_proto_goTypes = []any{
 	(*timestamppb.Timestamp)(nil), // 1: google.protobuf.Timestamp
 }
 var file_dummybank_v1_user_proto_depIdxs = []int32{
-	1, // 0: dummybank.v1.User.password_created_at:type_name -> google.protobuf.Timestamp
-	1, // 1: dummybank.v1.User.password_changed_at:type_name -> google.protobuf.Timestamp
+	1, // 0: dummybank.v1.User.created_at:type_name -> google.protobuf.Timestamp
+	1, // 1: dummybank.v1.User.password_updated_at:type_name -> google.protobuf.Timestamp
 	2, // [2:2] is the sub-list for method output_type
 	2, // [2:2] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
